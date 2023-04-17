@@ -1,0 +1,423 @@
+from urllib import response
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.exceptions import AuthenticationFailed
+from .serializers import *
+from .models import *
+import jwt, datetime
+from rest_framework import status
+# Create your views here.
+class RegisterView(APIView):
+    def post(self, request):
+        serializer = UserSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response(serializer.data)
+
+
+class LoginView(APIView):
+    def post(self, request):
+        email = request.data['email']
+        password = request.data['password']
+
+        user = User.objects.filter(email=email).first()
+
+        if user is None:
+            raise AuthenticationFailed('User not found!')
+
+        if not user.check_password(password):
+            raise AuthenticationFailed('Incorrect password!')
+
+        payload = {
+            'id': user.id,
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=60),
+            'iat': datetime.datetime.utcnow()
+        }
+
+        token = jwt.encode(payload, 'secret', algorithm='HS256').decode('utf-8')
+
+        response = Response()
+
+        response.set_cookie(key='jwt', value=token, httponly=True)
+        response.data = {
+            'jwt': token
+        }
+        return response
+
+
+class UserView(APIView):
+
+    def get(self, request):
+        token = request.headers.get('jwt')
+
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        user = User.objects.filter(id=payload['id']).first()
+        serializer = UserSerializer(user)
+        return Response(serializer.data)
+
+
+class LogoutView(APIView):
+    def post(self, request):
+        response = Response()
+        response.delete_cookie('jwt')
+        response.data = {
+            'message': 'success'
+        }
+        return response
+
+
+class FirmRecordView(APIView):
+    
+    def get(self, request):
+        stations = Station.objects.all()
+        serializer = StationSerializer(stations, many=True)
+        for i in range (len(serializer.data)):
+            count = 0
+            for j in range (len(serializer.data[i]['connection'])):
+                if serializer.data[i]['connection'][j]['status'] == 'available':
+                    count = count +1
+                serializer.data[i]['available_station_count']= count
+        return Response(serializer.data)
+
+class CarListView(APIView):
+    
+    def get(self, request):
+        cars = Car_list.objects.all()
+        serializer = CarlistSerializer(cars, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = CarlistSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+class CarView(APIView):
+
+    def get(self, request):
+        token = request.headers.get('jwt')
+
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        cars = Car.objects.filter(user_id=payload['id'])
+        serializer = CarSerializer(cars, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        token = request.headers.get('jwt')
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        request.data['user'] = payload['id']
+        serializer = UserCarSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def put(self, request, id):
+        try:
+            car = Car.objects.get(pk=id)
+        except Car.DoesNotExist:
+            return response(status=status.HTTP_404_NOT_FOUND)
+
+        serializer = UserCarputSerialize(car, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, id):
+        try:
+            car = Car.objects.get(pk=id)
+        except Car.DoesNotExist:
+            return response(status=status.HTTP_404_NOT_FOUND)
+
+        car.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+
+class AdressView(APIView):
+
+    def get(self, request):
+        token = request.headers.get('jwt')
+
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        adresses = Adress.objects.filter(user_id=payload['id'])
+        serializer = AdressSerializer(adresses, many=True)
+        return Response(serializer.data)
+    
+    def post(self, request):
+        token = request.headers.get('jwt')
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+        request.data['user'] = payload['id']
+        serializer = AdressSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def put(self, request, id):
+        try:
+            adress = Adress.objects.get(pk=id)
+        except Adress.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        
+        serializer = AdressputSerializer(adress, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, id):
+        try:
+            adress = Adress.objects.get(pk=id)
+        except Adress.DoesNotExist:
+            return response(status=status.HTTP_404_NOT_FOUND)
+        adress.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+
+
+class FavoriteView(APIView):
+
+    def get(self, request):
+        token = request.headers.get('jwt')
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        favorites = Favorites.objects.filter(user_id=payload['id'])
+        serializer = FavoriteSerializer(favorites, many=True)
+        return Response(serializer.data)
+    
+    def post(self, request):
+
+        token = request.headers.get('jwt')
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        if Favorites.objects.filter(station=request.data['station']):
+            favorite = Favorites.objects.filter(station=request.data['station'])
+            favorite.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        else:
+            request.data['user'] = payload['id']    
+            serializer = FavoritepostSerializer(data=request.data)
+            if serializer.is_valid():
+                serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+class ReservationDateView(APIView):
+    def post(self, request):
+        token = request.headers.get('jwt')
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        reservations = Reservation.objects.filter(station_id=request.data['station'],connection_id=request.data['connection'],reserv_date=request.data['date'])
+        seriazlizer = ReservationDateSerializer(reservations, many=True)
+        return Response(seriazlizer.data)
+
+class ReservationView(APIView):
+    def post(self, request):
+
+        token = request.headers.get('jwt')
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        request.data['user'] = payload['id']
+
+        request.data['reserved_at'] = datetime.datetime.now()
+
+        request.data['status'] = 'active'
+
+        serializer = ReservationSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    def get(self, request):
+
+        token = request.headers.get('jwt')
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        reservations = Reservation.objects.filter(user_id=payload['id'])
+        serializer = ReservationSerializer(reservations, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+class ChargeView(APIView):
+
+    def post(self, request):
+        token = request.headers.get('jwt')
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        reservation = Reservation.objects.filter(user_id=payload['id'])
+        reservationserializer = ReservationSerializer(reservation, many=True)
+        if reservationserializer.data == []:
+            connection = Connection.objects.filter(id=request.data['connection'])
+            connectionserializer = ConnectionSerializer(connection, many=True)
+            if connectionserializer.data[0]['status'] == 'available':
+                if connectionserializer.data[0]['connection_code'] == request.data['connection_code']:
+                    request.data['user'] = payload['id']
+                    request.data['start_time'] = datetime.datetime.now()
+                    request.data['status'] = 'Charging'
+                    del request.data['connection_code']
+                    chargeserializer = ChargeSerializer(data=request.data)
+                    if chargeserializer.is_valid():
+                        chargeserializer.save()
+                    return Response(chargeserializer.data, status=status.HTTP_201_CREATED)
+        else:
+            connection = Connection.objects.filter(id=request.data['connection'])
+            connectionserializer = ConnectionSerializer(connection, many=True)
+            for data in reservationserializer.data:
+                if data['station'] == request.data['station']:
+                    if data['connection'] == request.data['connection']:
+                        if connectionserializer.data[0]['connection_code'] == request.data['connection_code']:
+                            request.data['reservation'] = data['id']
+                            request.data['user'] = payload['id']
+                            request.data['start_time'] = datetime.datetime.now()
+                            request.data['status'] = 'Charging'
+                            del request.data['connection_code']
+                            chargeserializer = ChargeSerializer(data=request.data)
+                            if chargeserializer.is_valid():
+                                chargeserializer.save()
+                            return Response(chargeserializer.data, status=status.HTTP_201_CREATED)
+                        else:
+                            return Response('Connection codu hatalı',root@ip-172-31-38-193:/home/ubuntu#
+)
+                    else:
+                        return Response('istasyondaki Yanlış Connectiona bağlanmaya çalışıyorsun')
+                else:
+                    return Response('Başka bir istasyonda rezervasyonun mevcüt yanlış istasyondasın')
+
+            
+    def put(self, request, id):
+        try:
+            charge = Charge.objects.get(pk=id)
+        except charge.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+
+        serializer = ChargeputSerializer(charge, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def get(self, request):
+        token = request.headers.get('jwt')
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        charges = Charge.objects.filter(user_id=payload['id'],end_time__isnull=True)
+        serializer = ChargeSerializer(charges, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+class CityView(APIView):
+
+    def get(self, request):
+        token = request.headers.get('jwt')
+
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+        
+       
+        city = cities.objects.all()
+        serializer = CitiesSerializer(city, many = True)
+        return Response(serializer.data)
+        
+
+    def post(self, request):
+        token = request.headers.get('jwt')
+
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        if "cityid" in request.data.keys():
+            county = counties.objects.filter(cityid = request.data["cityid"])
+            serializer = CountySerializer(county,many = True)
+            return Response(serializer.data)
+        elif "countyid" in request.data.keys():
+            area = areas.objects.filter(countyid = request.data["countyid"])
+            serializer = AreaSerializer(area,many = True)
+            return Response(serializer.data)
+        elif "areaid" in request.data.keys():
+            neighborhood = neighborhoods.objects.filter(areaid = request.data["areaid"])
+            serializer = NeighborhoodSerializer(neighborhood,many=True)
+            return Response(serializer.data)
