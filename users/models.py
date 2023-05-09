@@ -36,7 +36,7 @@ class Station(models.Model):
     off_time = models.CharField(max_length=255)
     status = models.CharField(max_length=255)
     
-
+#Currency eklemek
 class Station_Price(models.Model):
     station = models.OneToOneField(Station, on_delete=models.CASCADE)
     AC = models.IntegerField()
@@ -105,6 +105,7 @@ class Charge(models.Model):
     price = models.IntegerField(null=True)
     status = models.CharField(max_length=255)
 
+
 class Payment(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     charge = models.OneToOneField(Charge, on_delete=models.CASCADE)
@@ -113,7 +114,7 @@ class Payment(models.Model):
     payment_time = models.DateTimeField()
 
 
-
+#Currency eklemek
 class Orders(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     charge = models.OneToOneField(Charge, on_delete=models.CASCADE)

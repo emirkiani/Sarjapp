@@ -12,7 +12,7 @@ class UserSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'password': {'write_only': True}
         }
-
+    #password Hash RFC2898 eklemek gerekiyor.
     def create(self, validated_data):
         password = validated_data.pop('password', None)
         instance = self.Meta.model(**validated_data)
@@ -51,7 +51,9 @@ class StationLocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Station_location
         fields = ['full_adress','city','country','latitude','longitude']
-
+#Station Serizalizer düzenlenecek
+#Subquery ve left join kontrol edilicek
+#indexlemek konusuna bakılıcak (index sayıları optimum tutulup(fazla olması insert yavaşlar). precise noktalara atılmalı)
 class StationSerializer(serializers.ModelSerializer):
     prices = StationPriceSerializer(source ='station_price')
     location = StationLocationSerializer(source='station_location')
@@ -94,25 +96,26 @@ class AdressputSerializer(serializers.ModelSerializer):
     class Meta:
         model = Adress
         fields = ['id','name','full_adress','description']
-
+#düzenlenecek favoriteserializer
 class FavoriteSerializer(serializers.ModelSerializer):
     station = StationSerializer()
     class Meta:
         model = Favorites
         fields = ['station']
-
+#station FavoritepostSerializer düzenlenecek
 class FavoritepostSerializer(serializers.ModelSerializer):
     class Meta:
         model = Favorites
         fields = ['user','station']
 
-
+#station ReservationSerializer düzenlenecek
 class ReservationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reservation
         fields = ['id','reserved_at', 'reservation_start_time', 'reservation_end_time','reserv_date','station','user','connection','status']
 
 class ReservationgetSerializer(serializers.ModelSerializer):
+    #Station
     station = StationSerializer()
     class Meta:
         model = Reservation
@@ -176,3 +179,10 @@ class AdressgetSerializer(serializers.ModelSerializer):
     class Meta:
         model = Adress
         fields = ['id','user','name','full_adress','city','counties','description','latitude','longitude']
+
+
+class FavoriteStationSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Station_location
+        fields = '__all__'

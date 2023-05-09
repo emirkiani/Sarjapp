@@ -21,4 +21,6 @@ urlpatterns = [
     path('charge/<int:id>',ChargeView.as_view()),
     path('cities',CityView.as_view()),
     path('payment',PaymentView.as_view()),
+    path('favoritestations',FavoriteStationView.as_view()),
+    path('routestations',RouteStationView.as_view()),
 ]

@@ -5,15 +5,22 @@ from rest_framework.exceptions import AuthenticationFailed
 from .serializers import *
 from .models import *
 import jwt, datetime
+import math
+from math import radians, sin, cos, sqrt, atan2
+from geopy.geocoders import Nominatim
+from polyline import decode
+import requests
+import time
+#from polyline.codec import PolylineCodec
 #import iyzipay
 from rest_framework import status
-# Create your views here.
 class RegisterView(APIView):
     def post(self, request):
+        #guest girişi için mail fieldinın düzenlenmesi
         is_guest = request.data.get('is_guest', False)
         if is_guest:
             data = {
-                'email': 'guest@example.com',  # or any other email you want to use for guest users
+                'email': 'guest@example.com',
                 'is_guest': True
             }
         else:
@@ -28,7 +35,7 @@ class RegisterView(APIView):
             'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=60),
             'iat': datetime.datetime.utcnow()
         }
-
+        
         token = jwt.encode(payload, 'secret', algorithm='HS256').decode('utf-8')
 
         response = Response()
@@ -47,7 +54,6 @@ class LoginView(APIView):
         password = request.data.get('password', None)
 
         if email is None and password is None:
-            # Guest login
             user = User.objects.create(email='guest@example.com', is_guest=True)
         else:
             user = User.objects.filter(email=email).first()
@@ -102,7 +108,11 @@ class LogoutView(APIView):
         }
         return response
 
-
+#Stations verisi latitude longitude request içinde alarak dönecek
+#station infoları parça parça get alıcak şekilde düzenlenecek
+#Station Search 
+#Station filtre APIsi yazılıcak
+#Station AC/DC,KW Power, Rating,7/24,taşıt service,bireysel istisyon(sonra)
 class FirmRecordView(APIView):
     
     def get(self, request):
@@ -115,7 +125,8 @@ class FirmRecordView(APIView):
                     count = count +1
                 serializer.data[i]['available_station_count']= count
         return Response(serializer.data)
-
+    
+#Araç ile alakalı Veri incelenelip
 class CarListView(APIView):
     
     def get(self, request):
@@ -338,7 +349,8 @@ class ReservationView(APIView):
             return response(status=status.HTTP_404_NOT_FOUND)
         reservation.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
-
+#Charge başlatılıyor ama connection statusu değişmiyor (düzenlenecek)II
+#Charge başlatıldığında dönen infolar yeterli değil(firmalar ile görüşme sonrası düzenlenmeli)II
 class ChargeView(APIView):
 
     def post(self, request):
@@ -474,7 +486,7 @@ class CityView(APIView):
             serializer = NeighborhoodSerializer(neighborhood,many=True)
             return Response(serializer.data)
 
-
+#payment düzenlenecek()II
 class PaymentView(APIView):
 
     def get(self, request):
@@ -607,3 +619,122 @@ class PaymentView(APIView):
         
         #serializer = AdressSerializer(data=request.data)
         return Response(request)
+
+
+
+#Favori istasyon algoritması için rota üzerinde (bütün noktalar dönücek)algoritma bakılacak
+class FavoriteStationView(APIView):
+    
+    def get(self, request):
+        latitude = float(request.data['latitude'])
+        longitude = float(request.data['longitude'])
+        diameter = float(request.data['diameter'])
+
+        lat_r = radians(latitude)
+        lon_r = radians(longitude)
+
+        stations = Station_location.objects.filter(
+            station__isnull=False,
+            latitude__range=(latitude - (diameter / 111), latitude + (diameter / 111)),
+            longitude__range=(longitude - (diameter / (111 * cos(lat_r))), longitude + (diameter / (111 * cos(lat_r)))),
+        )
+
+        for station in stations:
+            station_lat_r = radians(float(station.latitude))
+            station_lon_r = radians(float(station.longitude))
+            dlon = station_lon_r - lon_r
+            dlat = station_lat_r - lat_r
+            a = sin(dlat/2)**2 + cos(lat_r) * cos(station_lat_r) * sin(dlon/2)**2
+            c = 2 * atan2(sqrt(a), sqrt(1-a))
+            distance = 6371 * c
+            print(distance)
+            #station.distance = distance
+
+        #stations = sorted(stations, key=lambda s: s.distance)
+        #print(stations)
+        serializer = FavoriteStationSerializer(stations, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+    
+
+
+
+
+
+
+class RouteStationView(APIView):
+
+    def get(self, request):
+        start_latitude = float(request.data.get('start_latitude'))
+        start_longitude = float(request.data.get('start_longitude'))
+        dest_latitude = float(request.data.get('dest_latitude'))
+        dest_longitude = float(request.data.get('dest_longitude'))
+
+        route_url = f'https://maps.googleapis.com/maps/api/directions/json?origin={start_latitude},{start_longitude}&destination={dest_latitude},{dest_longitude}&mode=driving&key=AIzaSyAMBbQy9wILxwW_jOn-LharzXsxMtVi1Bw'
+        response = requests.get(route_url)
+        if response.status_code != 200:
+            return Response({'error': 'Unable to calculate route'}, status=status.HTTP_400_BAD_REQUEST)
+
+        route_data = response.json()
+        #print(route_data)
+        polyline = route_data['routes'][0]['overview_polyline']['points']
+        route_coords = decode(polyline)
+
+        segment_length =10
+        segments = []
+        for i in range(0, len(route_coords) - 1):
+            segment_start = route_coords[i]
+            segment_end = route_coords[i + 1]
+            segment_distance = self.calculate_distance(segment_start[0], segment_start[1], segment_end[0], segment_end[1])
+            print(segment_distance)
+            segment_steps = math.ceil(segment_distance / segment_length)
+            print(segment_steps)
+            for j in range(segment_steps):
+                t = float(j) / segment_steps
+                segment_lat = segment_start[0] * (1 - t) + segment_end[0] * t
+                segment_lng = segment_start[1] * (1 - t) + segment_end[1] * t
+                segments.append((segment_lat, segment_lng))
+
+        stations = []
+        segment_width = 2
+        tic_1 = time.time()
+        print(segments)
+        
+        for segment in segments:
+            min_lat, max_lat, min_lng, max_lng = self.calculate_bounding_box(segment[0], segment[1], segment_width)
+            segment_stations = Station_location.objects.filter(latitude__gte=min_lat, latitude__lte=max_lat, longitude__gte=min_lng, longitude__lte=max_lng)
+            tic_2 = time.time()
+            serializer_segments = StationLocationSerializer(segment_stations, many=True)
+            print(serializer_segments.data)
+            for station in segment_stations:
+                station_distance = self.calculate_distance(station.latitude, station.longitude, segment[0], segment[1])
+                print(station_distance)
+                if station_distance < 1:
+                    stations.append(station)
+            station_time=(time.time()-tic_2)
+        segment_time=(time.time()-tic_1)
+        print("segment_time:", segment_time)
+        #print("station_time:", station_time)
+        serializer = StationLocationSerializer(stations, many=True)
+        return Response(serializer.data)
+
+    def calculate_distance(self, lat1, lng1, lat2, lng2):
+        earth_radius = 6371  # in km
+        lat1_rad = radians(lat1)
+        lng1_rad = radians(lng1)
+        lat2_rad = radians(lat2)
+        lng2_rad = radians(lng2)
+        d_lat = lat2_rad - lat1_rad
+        d_lng = lng2_rad - lng1_rad
+        a = sin(d_lat / 2) ** 2 + cos(lat1_rad) * cos(lat2_rad) * sin(d_lng / 2) ** 2
+        c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return earth_radius * c
+
+    def calculate_bounding_box(self, lat, lng, width):
+        earth_radius = 6371  # in km
+        d_lat = width / earth_radius
+        d_lng = width / (earth_radius * cos(radians(lat)))
+        min_lat = lat - d_lat
+        max_lat = lat + d_lat
+        min_lng = lng - d_lng
+        max_lng = lng + d_lng
+        return min_lat, max_lat, min_lng, max_lng
