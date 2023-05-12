@@ -677,46 +677,38 @@ class RouteStationView(APIView):
             return Response({'error': 'Unable to calculate route'}, status=status.HTTP_400_BAD_REQUEST)
 
         route_data = response.json()
-        #print(route_data)
         polyline = route_data['routes'][0]['overview_polyline']['points']
         route_coords = decode(polyline)
-
-        segment_length =10
+        new_route_coords = route_coords[::10]
+        segment_length =5
         segments = []
-        for i in range(0, len(route_coords) - 1):
-            segment_start = route_coords[i]
-            segment_end = route_coords[i + 1]
+        distances = []
+        for i in range(0, len(new_route_coords) - 1):
+            segment_start = new_route_coords[i]
+            segment_end = new_route_coords[i + 1]
             segment_distance = self.calculate_distance(segment_start[0], segment_start[1], segment_end[0], segment_end[1])
-            # print(segment_distance)
+            distances.append(segment_distance)
             segment_steps = math.ceil(segment_distance / segment_length)
-            # print(segment_steps)
+            print(segment_distance)
             for j in range(segment_steps):
                 t = float(j) / segment_steps
                 segment_lat = segment_start[0] * (1 - t) + segment_end[0] * t
                 segment_lng = segment_start[1] * (1 - t) + segment_end[1] * t
                 segments.append((segment_lat, segment_lng))
-
+        print("new route len", len(new_route_coords))
+        print("segment len", len(segments))
         stations = []
-        segment_width = 2
-        tic_1 = time.time()
-        # print(segments)
-        
+        segment_width = 10
+
         for segment in segments:
             min_lat, max_lat, min_lng, max_lng = self.calculate_bounding_box(segment[0], segment[1], segment_width)
             segment_stations = Station_location.objects.filter(latitude__gte=min_lat, latitude__lte=max_lat, longitude__gte=min_lng, longitude__lte=max_lng)
-            tic_2 = time.time()
-            serializer_segments = StationLocationSerializer(segment_stations, many=True)
-            # print(serializer_segments.data)
+            #print(len(segment_stations))
             for station in segment_stations:
-                station_distance = self.calculate_distance(station.latitude, station.longitude, segment[0], segment[1])
-                # print(station_distance)
+                station_distance = self.calculate_distance(station.latitude,station.longitude,segment[0],segment[1])
                 if station_distance < 1:
                     stations.append(station)
-            station_time=(time.time()-tic_2)
-        segment_time=(time.time()-tic_1)
-        # print("segment_time:", segment_time)
-        #print("station_time:", station_time)
-        print(connection.queries[-1]['sql'])
+        #print(connection.queries[-1]['sql'])
         serializer = StationLocationSerializer(stations, many=True)
         return Response(serializer.data)
 
