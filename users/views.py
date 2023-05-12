@@ -11,6 +11,7 @@ from geopy.geocoders import Nominatim
 from polyline import decode
 import requests
 import time
+from django.db import connection
 #from polyline.codec import PolylineCodec
 #import iyzipay
 from rest_framework import status
@@ -124,6 +125,7 @@ class FirmRecordView(APIView):
                 if serializer.data[i]['connection'][j]['status'] == 'available':
                     count = count +1
                 serializer.data[i]['available_station_count']= count
+        print(connection.queries[-1]['sql'])
         return Response(serializer.data)
     
 #Araç ile alakalı Veri incelenelip
@@ -685,9 +687,9 @@ class RouteStationView(APIView):
             segment_start = route_coords[i]
             segment_end = route_coords[i + 1]
             segment_distance = self.calculate_distance(segment_start[0], segment_start[1], segment_end[0], segment_end[1])
-            print(segment_distance)
+            # print(segment_distance)
             segment_steps = math.ceil(segment_distance / segment_length)
-            print(segment_steps)
+            # print(segment_steps)
             for j in range(segment_steps):
                 t = float(j) / segment_steps
                 segment_lat = segment_start[0] * (1 - t) + segment_end[0] * t
@@ -697,23 +699,24 @@ class RouteStationView(APIView):
         stations = []
         segment_width = 2
         tic_1 = time.time()
-        print(segments)
+        # print(segments)
         
         for segment in segments:
             min_lat, max_lat, min_lng, max_lng = self.calculate_bounding_box(segment[0], segment[1], segment_width)
             segment_stations = Station_location.objects.filter(latitude__gte=min_lat, latitude__lte=max_lat, longitude__gte=min_lng, longitude__lte=max_lng)
             tic_2 = time.time()
             serializer_segments = StationLocationSerializer(segment_stations, many=True)
-            print(serializer_segments.data)
+            # print(serializer_segments.data)
             for station in segment_stations:
                 station_distance = self.calculate_distance(station.latitude, station.longitude, segment[0], segment[1])
-                print(station_distance)
+                # print(station_distance)
                 if station_distance < 1:
                     stations.append(station)
             station_time=(time.time()-tic_2)
         segment_time=(time.time()-tic_1)
-        print("segment_time:", segment_time)
+        # print("segment_time:", segment_time)
         #print("station_time:", station_time)
+        print(connection.queries[-1]['sql'])
         serializer = StationLocationSerializer(stations, many=True)
         return Response(serializer.data)
 
