@@ -703,7 +703,6 @@ class RouteStationView(APIView):
         for segment in segments:
             min_lat, max_lat, min_lng, max_lng = self.calculate_bounding_box(segment[0], segment[1], segment_width)
             segment_stations = Station_location.objects.filter(latitude__gte=min_lat, latitude__lte=max_lat, longitude__gte=min_lng, longitude__lte=max_lng)
-            #print(len(segment_stations))
             for station in segment_stations:
                 station_distance = self.calculate_distance(station.latitude,station.longitude,segment[0],segment[1])
                 if station_distance < 1:
