@@ -119,14 +119,23 @@ class FirmRecordView(APIView):
     def get(self, request):
         stations = Station.objects.all()
         serializer = StationSerializer(stations, many=True)
-        for i in range (len(serializer.data)):
-            count = 0
-            for j in range (len(serializer.data[i]['connection'])):
-                if serializer.data[i]['connection'][j]['status'] == 'available':
-                    count = count +1
-                serializer.data[i]['available_station_count']= count
-        print(connection.queries[-1]['sql'])
         return Response(serializer.data)
+    
+class StationDetails(APIView):
+    
+    def get(self, request, station_id):
+        station = Station.objects.filter(id=station_id).first()
+        if station:
+            serializer = StationDetailSerializer(station)
+            count = 0
+            for connection in serializer.data['connection']:
+                if connection['status'] == 'available':
+                    count += 1
+            serializer.data['available_station_count'] = count
+            return Response(serializer.data)
+        else:
+            return Response({"error": "Station not found."}, status=status.HTTP_404_NOT_FOUND)
+
     
 #Araç ile alakalı Veri incelenelip
 class CarListView(APIView):
@@ -732,3 +741,35 @@ class RouteStationView(APIView):
         min_lng = lng - d_lng
         max_lng = lng + d_lng
         return min_lat, max_lat, min_lng, max_lng
+    
+class UserProfile(APIView):
+    def get(self, request):
+        token = request.headers.get('jwt')
+
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+        try:
+            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        cars = Car.objects.filter(user_id=payload['id'])
+        car_serializer = CarSerializer(cars, many=True)
+        adresses = Adress.objects.filter(user_id=payload['id'])
+        adress_serializer = AdressSerializer(adresses, many=True)
+        
+        
+        response_data = {
+            'cars': car_serializer.data,
+            'user_adress': adress_serializer.data
+        }
+        if response_data['cars'] :
+            print("Araç Bilgisi Var")
+        else:
+            print("Araç Bilgisi Yok")
+        if response_data['user_adress']:
+            print("Adres Bilgisi Var")
+        else:
+            print("Adres Bilgisi Yok")
+            
+        return Response(response_data)

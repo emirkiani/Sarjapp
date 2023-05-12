@@ -47,14 +47,26 @@ class StationPriceSerializer(serializers.ModelSerializer):
         model = Station_Price
         fields = ['AC','DC']
 
+#Station Serizalizer düzenlenecek
+#Subquery ve left join kontrol edilicek
+#indexlemek konusuna bakılıcak (index sayıları optimum tutulup(fazla olması insert yavaşlar). precise noktalara atılmalı)
 class StationLocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Station_location
         fields = ['full_adress','city','country','latitude','longitude']
-#Station Serizalizer düzenlenecek
-#Subquery ve left join kontrol edilicek
-#indexlemek konusuna bakılıcak (index sayıları optimum tutulup(fazla olması insert yavaşlar). precise noktalara atılmalı)
+
+class StationCoordinatesSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Station_location
+        fields = ['latitude','longitude']
+
 class StationSerializer(serializers.ModelSerializer):
+    station_location = StationCoordinatesSerializer()
+    class Meta:
+        model = Station
+        fields = ['id','station_location','station_code']
+
+class StationDetailSerializer(serializers.ModelSerializer):
     prices = StationPriceSerializer(source ='station_price')
     location = StationLocationSerializer(source='station_location')
     firm = FirmSerializer()
