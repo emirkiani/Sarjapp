@@ -688,36 +688,37 @@ class RouteStationView(APIView):
         route_data = response.json()
         polyline = route_data['routes'][0]['overview_polyline']['points']
         route_coords = decode(polyline)
-        new_route_coords = route_coords[::10]
+        new_route_coords = route_coords[::1]
         segment_length =5
         segments = []
-        distances = []
         for i in range(0, len(new_route_coords) - 1):
             segment_start = new_route_coords[i]
             segment_end = new_route_coords[i + 1]
             segment_distance = self.calculate_distance(segment_start[0], segment_start[1], segment_end[0], segment_end[1])
-            distances.append(segment_distance)
             segment_steps = math.ceil(segment_distance / segment_length)
-            print(segment_distance)
             for j in range(segment_steps):
                 t = float(j) / segment_steps
                 segment_lat = segment_start[0] * (1 - t) + segment_end[0] * t
                 segment_lng = segment_start[1] * (1 - t) + segment_end[1] * t
                 segments.append((segment_lat, segment_lng))
-        print("new route len", len(new_route_coords))
-        print("segment len", len(segments))
         stations = []
         segment_width = 10
-
+        stations_distances = {}
         for segment in segments:
             min_lat, max_lat, min_lng, max_lng = self.calculate_bounding_box(segment[0], segment[1], segment_width)
             segment_stations = Station_location.objects.filter(latitude__gte=min_lat, latitude__lte=max_lat, longitude__gte=min_lng, longitude__lte=max_lng)
             for station in segment_stations:
                 station_distance = self.calculate_distance(station.latitude,station.longitude,segment[0],segment[1])
+                stations_distances[station.id] = station_distance
                 if station_distance < 1:
                     stations.append(station)
         #print(connection.queries[-1]['sql'])
+        # serializer = StationDetailSerializer(stations)
         serializer = StationLocationSerializer(stations, many=True)
+
+        for data in serializer.data:
+            data['distance']=stations_distances[data['id']]
+            data['puan']=1-data['distance']
         return Response(serializer.data)
 
     def calculate_distance(self, lat1, lng1, lat2, lng2):

@@ -53,7 +53,7 @@ class StationPriceSerializer(serializers.ModelSerializer):
 class StationLocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Station_location
-        fields = ['full_adress','city','country','latitude','longitude']
+        fields = ['id','full_adress','city','country','latitude','longitude']
 
 class StationCoordinatesSerializer(serializers.ModelSerializer):
     class Meta:
