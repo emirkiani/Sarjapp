@@ -15,9 +15,11 @@ from django.db import connection
 #from polyline.codec import PolylineCodec
 #import iyzipay
 from rest_framework import status
+import re
+
 class RegisterView(APIView):
     def post(self, request):
-        #guest girişi için mail fieldinın düzenlenmesi
+        #guest giriÅŸi iÃ§in mail fieldinÄ±n dÃ¼zenlenmesi
         is_guest = request.data.get('is_guest', False)
         if is_guest:
             data = {
@@ -36,8 +38,9 @@ class RegisterView(APIView):
             'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=60),
             'iat': datetime.datetime.utcnow()
         }
-        
-        token = jwt.encode(payload, 'secret', algorithm='HS256').decode('utf-8')
+
+        token = jwt.encode(payload, 'secret', algorithm="HS256")
+        #token = jwt.decode(encoded, 'secret', algorithms="HS256")
 
         response = Response()
 
@@ -71,7 +74,8 @@ class LoginView(APIView):
             'iat': datetime.datetime.utcnow()
         }
 
-        token = jwt.encode(payload, 'secret', algorithm='HS256').decode('utf-8')
+        token = jwt.encode(payload, 'secret', algorithm="HS256")
+        #token = jwt.decode(encoded, 'secret', algorithms="HS256")
 
         response = Response()
 
@@ -91,7 +95,7 @@ class UserView(APIView):
         if not token:
             raise AuthenticationFailed('Unauthenticated!')
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -109,18 +113,103 @@ class LogoutView(APIView):
         }
         return response
 
-#Stations verisi latitude longitude request içinde alarak dönecek
-#station infoları parça parça get alıcak şekilde düzenlenecek
+#Stations verisi latitude longitude request iÃ§inde alarak dÃ¶necek
+#station infolarÄ± parÃ§a parÃ§a get alÄ±cak ÅŸekilde dÃ¼zenlenecek
 #Station Search 
-#Station filtre APIsi yazılıcak
-#Station AC/DC,KW Power, Rating,7/24,taşıt service,bireysel istisyon(sonra)
+#Station filtre APIsi yazÄ±lÄ±cak
+#Station AC/DC,KW Power, Rating,7/24,taÅŸÄ±t service,bireysel istisyon(sonra)
+
 class FirmRecordView(APIView):
-    
-    def get(self, request):
-        stations = Station.objects.all()
-        serializer = StationSerializer(stations, many=True)
+
+    def post(self, request):
+        data = request.data
+
+        min_lat = float(data.get('min_lat'))
+        max_lat = float(data.get('max_lat'))
+        min_lng = float(data.get('min_lng'))
+        max_lng = float(data.get('max_lng'))
+        power = data.get('power')  # e.g., "50W" or "80W"
+        connection_type = data.get('connection_type')  # e.g., "DCCOMBOTYP2"
+
+        stations = Station_location.objects.filter(
+            latitude__gte=min_lat, latitude__lte=max_lat,
+            longitude__gte=min_lng, longitude__lte=max_lng
+        )
+
+        # Filter stations by power
+        if power:
+            stations = stations.filter(station__connection__power=power)
+
+        # Filter stations by connection_type
+        if connection_type:
+            stations = stations.filter(station__connector_type__iregex=connection_type)
+
+        serializer = StationCoordinatesSerializer(stations, many=True)
         return Response(serializer.data)
-    
+
+
+class RecommendationView(APIView):
+    def post(self, request):
+        radius = 6371
+        data = request.data
+        user_price = data.get('price')
+        user_social = data.get('social')
+        user_distance = data.get('distance')
+        connection_type = data.get('connection_type')
+
+        min_lat = float(data.get('min_lat'))
+        max_lat = float(data.get('max_lat'))
+        min_lng = float(data.get('min_lng'))
+        max_lng = float(data.get('max_lng'))
+
+        user_lat = (min_lat + max_lat) / 2
+        user_lng = (min_lng + max_lng) / 2
+
+        stations = Station_location.objects.filter(latitude__gte=min_lat, latitude__lte=max_lat, longitude__gte=min_lng, longitude__lte=max_lng)
+        serializer = RecommendationSerializer(stations, many=True)
+
+        for data in serializer.data:            
+            station_lat = float(data['latitude'])
+            station_lng = float(data['longitude'])
+            dlat = math.radians(station_lat - user_lat)
+            dlng = math.radians(station_lng - user_lng)
+            a = math.sin(dlat / 2) * math.sin(dlat / 2) + math.cos(math.radians(user_lat)) * math.cos(math.radians(station_lat)) * math.sin(dlng / 2) * math.sin(dlng / 2)
+            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+            distance_km = radius * c
+            data['distance']=distance_km
+        distances = []
+        connection_prices = []
+        for item in serializer.data:
+            distances.append(item["distance"])
+            connection_prices.append(item[connection_type])
+
+        min_distance = min(distances)
+        max_distance = max(distances)
+
+        min_price = min(connection_prices)
+        max_price = max(connection_prices)
+
+        normalized_data = []
+        for i,item in enumerate(serializer.data):
+            normalized_data.append({})
+            normalized_data[i]['id']=item['id']
+            normalized_data[i]['normalized_distance'] = 100-(((item["distance"] - min_distance) / (max_distance - min_distance)) * 100)
+            normalized_data[i]['normalized_price'] = 100-(((item[connection_type] - min_price) / (max_price - min_price)) * 100)
+            if item["social_facilities"]:
+                normalized_data[i]['social_count'] = 1+((item["social_facilities"].count(',')+1)/10)
+            else:
+                normalized_data[i]['social_count'] = 1
+            if item[connection_type] == 0:
+                item["puan"] = 0
+            else:
+                item["puan"] = (((normalized_data[i]['normalized_distance']*user_distance)+(normalized_data[i]['normalized_price'])*user_price)/(user_distance+user_price))*(normalized_data[i]['social_count']*user_social)
+        result = serializer.data.copy()
+        for count,item in enumerate(result):
+            if item['puan'] == 0:
+                del result[count]
+        return Response(result)
+
+
 class StationDetails(APIView):
     
     def get(self, request, station_id):
@@ -137,7 +226,7 @@ class StationDetails(APIView):
             return Response({"error": "Station not found."}, status=status.HTTP_404_NOT_FOUND)
 
     
-#Araç ile alakalı Veri incelenelip
+#AraÃ§ ile alakalÄ± Veri incelenelip
 class CarListView(APIView):
     
     def get(self, request):
@@ -160,7 +249,7 @@ class CarView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -174,7 +263,7 @@ class CarView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -216,7 +305,7 @@ class AdressView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -230,7 +319,7 @@ class AdressView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
         request.data['user'] = payload['id']
@@ -270,7 +359,7 @@ class FavoriteView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -285,7 +374,7 @@ class FavoriteView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -307,7 +396,7 @@ class ReservationDateView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -323,7 +412,7 @@ class ReservationView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -345,7 +434,7 @@ class ReservationView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -360,8 +449,8 @@ class ReservationView(APIView):
             return response(status=status.HTTP_404_NOT_FOUND)
         reservation.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
-#Charge başlatılıyor ama connection statusu değişmiyor (düzenlenecek)II
-#Charge başlatıldığında dönen infolar yeterli değil(firmalar ile görüşme sonrası düzenlenmeli)II
+#Charge baÅŸlatÄ±lÄ±yor ama connection statusu deÄŸiÅŸmiyor (dÃ¼zenlenecek)II
+#Charge baÅŸlatÄ±ldÄ±ÄŸÄ±nda dÃ¶nen infolar yeterli deÄŸil(firmalar ile gÃ¶rÃ¼ÅŸme sonrasÄ± dÃ¼zenlenmeli)II
 class ChargeView(APIView):
 
     def post(self, request):
@@ -370,7 +459,7 @@ class ChargeView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -408,13 +497,13 @@ class ChargeView(APIView):
                                 chargeserializer.save()
                             return Response(chargeserializer.data, status=status.HTTP_201_CREATED)
                         else:
-                            content={'Connection codu hatalı':'kodu tekrar giriniz'}
+                            content={'Connection codu hatalÄ±':'kodu tekrar giriniz'}
                             return Response(content, status=status.HTTP_424_FAILED_DEPENDENCY)
                     else:
-                        content = {'istasyondaki Yanlış Connectiona bağlanmaya çalışıyorsun':'doğru connectiondan şarj etmeyi dene'}
+                        content = {'istasyondaki YanlÄ±ÅŸ Connectiona baÄŸlanmaya Ã§alÄ±ÅŸÄ±yorsun':'doÄŸru connectiondan ÅŸarj etmeyi dene'}
                         return Response(content, status=status.HTTP_424_FAILED_DEPENDENCY)
                 else:
-                    content = {'Başka bir istasyonda rezervasyonun mevcüt yanlış istasyonda':'doğru istasyonda değilsin'}
+                    content = {'BaÅŸka bir istasyonda rezervasyonun mevcÃ¼t yanlÄ±ÅŸ istasyonda':'doÄŸru istasyonda deÄŸilsin'}
                     return Response(content, status=status.HTTP_424_FAILED_DEPENDENCY)
 
             
@@ -446,7 +535,7 @@ class ChargeView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -463,7 +552,7 @@ class CityView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
         
@@ -480,7 +569,7 @@ class CityView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -497,7 +586,7 @@ class CityView(APIView):
             serializer = NeighborhoodSerializer(neighborhood,many=True)
             return Response(serializer.data)
 
-#payment düzenlenecek()II
+#payment dÃ¼zenlenecek()II
 class PaymentView(APIView):
 
     def get(self, request):
@@ -506,7 +595,7 @@ class PaymentView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -521,7 +610,7 @@ class PaymentView(APIView):
             raise AuthenticationFailed('Unauthenticated!')
 
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
         
@@ -619,9 +708,9 @@ class PaymentView(APIView):
                         
                     else :
                         print("merto",info)
-                    return Response("Ödeme Başarılı")
+                    return Response("Ã–deme BaÅŸarÄ±lÄ±")
                 else :
-                    return Response("Bir Sorun Oluştu")
+                    return Response("Bir Sorun OluÅŸtu")
                 
                 return Response(payment.read().decode('UTF-8'))
         
@@ -633,17 +722,17 @@ class PaymentView(APIView):
 
 
 
-#Favori istasyon algoritması için rota üzerinde (bütün noktalar dönücek)algoritma bakılacak
+#Favori istasyon algoritmasÄ± iÃ§in rota Ã¼zerinde (bÃ¼tÃ¼n noktalar dÃ¶nÃ¼cek)algoritma bakÄ±lacak
 class FavoriteStationView(APIView):
     
-    def get(self, request):
+    def post(self, request):
         latitude = float(request.data['latitude'])
         longitude = float(request.data['longitude'])
         diameter = float(request.data['diameter'])
 
         lat_r = radians(latitude)
         lon_r = radians(longitude)
-
+        stations_distances={}
         stations = Station_location.objects.filter(
             station__isnull=False,
             latitude__range=(latitude - (diameter / 111), latitude + (diameter / 111)),
@@ -658,27 +747,35 @@ class FavoriteStationView(APIView):
             a = sin(dlat/2)**2 + cos(lat_r) * cos(station_lat_r) * sin(dlon/2)**2
             c = 2 * atan2(sqrt(a), sqrt(1-a))
             distance = 6371 * c
+            stations_distances[station.id] = distance
             print(distance)
             #station.distance = distance
 
         #stations = sorted(stations, key=lambda s: s.distance)
         #print(stations)
         serializer = FavoriteStationSerializer(stations, many=True)
+        for data in serializer.data:
+            data['distance']=stations_distances[data['id']]
+            data['puan']=10-data['distance']
+            #print(distance)
+            #station.distance = distance
+
+        #stations = sorted(stations, key=lambda s: s.distance)
+        #print(stations)
         return Response(serializer.data, status=status.HTTP_200_OK)
     
-
-
-
-
-
-
 class RouteStationView(APIView):
 
-    def get(self, request):
-        start_latitude = float(request.data.get('start_latitude'))
-        start_longitude = float(request.data.get('start_longitude'))
-        dest_latitude = float(request.data.get('dest_latitude'))
-        dest_longitude = float(request.data.get('dest_longitude'))
+    def post(self, request):
+        start_latitude = float(request.data['start_latitude'])
+        start_longitude = float(request.data['start_longitude'])
+        dest_latitude = float(request.data['dest_latitude'])
+        dest_longitude = float(request.data['dest_longitude'])
+
+        user_price = request.data['price']
+        user_social = request.data['social']
+        user_distance=request.data['distance']
+        connection_type = request.data['connection_type']
 
         route_url = f'https://maps.googleapis.com/maps/api/directions/json?origin={start_latitude},{start_longitude}&destination={dest_latitude},{dest_longitude}&mode=driving&key=AIzaSyAMBbQy9wILxwW_jOn-LharzXsxMtVi1Bw'
         response = requests.get(route_url)
@@ -702,24 +799,68 @@ class RouteStationView(APIView):
                 segment_lng = segment_start[1] * (1 - t) + segment_end[1] * t
                 segments.append((segment_lat, segment_lng))
         stations = []
-        segment_width = 10
+        segment_width = 1
         stations_distances = {}
         for segment in segments:
             min_lat, max_lat, min_lng, max_lng = self.calculate_bounding_box(segment[0], segment[1], segment_width)
-            segment_stations = Station_location.objects.filter(latitude__gte=min_lat, latitude__lte=max_lat, longitude__gte=min_lng, longitude__lte=max_lng)
+            lat_r = radians(segment[0])
+            lon_r = radians(segment[1])
+            segment_stations = Station_location.objects.filter(
+            station__isnull=False,
+            latitude__range=(segment[0] - (segment_width / 111), segment[0] + (segment_width / 111)),
+            longitude__range=(segment[1] - (segment_width / (111 * cos(lat_r))), segment[1] + (segment_width / (111 * cos(lat_r)))),
+        )
             for station in segment_stations:
                 station_distance = self.calculate_distance(station.latitude,station.longitude,segment[0],segment[1])
                 stations_distances[station.id] = station_distance
-                if station_distance < 1:
+                if station_distance < 2:
                     stations.append(station)
         #print(connection.queries[-1]['sql'])
         # serializer = StationDetailSerializer(stations)
-        serializer = StationLocationSerializer(stations, many=True)
+        serializer = RecommendationSerializer(stations, many=True)
 
-        for data in serializer.data:
+        #TEKRAR EDEN IDLERÄ° SÄ°LMEK Ä°Ã‡Ä°N
+        unique_data = []
+        ids_seen = set()
+
+        for item in serializer.data:
+            if item["id"] not in ids_seen:
+                unique_data.append(item)
+                ids_seen.add(item["id"])
+        ##
+        for data in unique_data:
             data['distance']=stations_distances[data['id']]
-            data['puan']=1-data['distance']
-        return Response(serializer.data)
+
+        distances = []
+        connection_prices = []
+        for item in unique_data:
+            distances.append(item["distance"])
+            connection_prices.append(item[connection_type])
+        
+        min_distance = min(distances)
+        max_distance = max(distances)
+
+        min_price = min(connection_prices)
+        max_price = max(connection_prices)
+
+        normalized_data = []
+        for i,item in enumerate(unique_data):
+            normalized_data.append({})
+            normalized_data[i]['id']=item['id']
+            normalized_data[i]['normalized_distance'] = 100-(((item["distance"] - min_distance) / (max_distance - min_distance)) * 100)
+            normalized_data[i]['normalized_price'] = 100-(((item[connection_type] - min_price) / (max_price - min_price)) * 100)
+            if item["social_facilities"]:
+                normalized_data[i]['social_count'] = 1+((item["social_facilities"].count(',')+1)/10)
+            else:
+                normalized_data[i]['social_count'] = 1
+            if item[connection_type] == 0:
+                item["puan"] = 0
+            else:
+                item["puan"] = (((normalized_data[i]['normalized_distance']*user_distance)+(normalized_data[i]['normalized_price'])*user_price)/(user_distance+user_price))*(normalized_data[i]['social_count']*user_social)
+        for count,item in enumerate(unique_data):
+            if item['puan'] == 0:
+                del unique_data[count]
+        return Response(unique_data)
 
     def calculate_distance(self, lat1, lng1, lat2, lng2):
         earth_radius = 6371  # in km
@@ -750,7 +891,7 @@ class UserProfile(APIView):
         if not token:
             raise AuthenticationFailed('Unauthenticated!')
         try:
-            payload = jwt.decode(token, 'secret', algorithm=['HS256'])
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
         except jwt.ExpiredSignatureError:
             raise AuthenticationFailed('Unauthenticated!')
 
@@ -765,12 +906,60 @@ class UserProfile(APIView):
             'user_adress': adress_serializer.data
         }
         if response_data['cars'] :
-            print("Araç Bilgisi Var")
+            print("AraÃ§ Bilgisi Var")
         else:
-            print("Araç Bilgisi Yok")
+            print("AraÃ§ Bilgisi Yok")
         if response_data['user_adress']:
             print("Adres Bilgisi Var")
         else:
             print("Adres Bilgisi Yok")
             
         return Response(response_data)
+
+
+
+class CriteriaView(APIView):
+
+    def get(self, request):
+        token = request.headers.get('jwt')
+
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        criteria = Criteria.objects.filter(user_id=payload['id'])
+        serializer = CriteriaSerializer(criteria, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        token = request.headers.get('jwt')
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        request.data['user'] = payload['id']
+        serializer = CriteriaSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def put(self, request, id):
+        try:
+            criteria = Criteria.objects.get(pk=id)
+        except Criteria.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+        serializer = CriteriaSerializer(criteria, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

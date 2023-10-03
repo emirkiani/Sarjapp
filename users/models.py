@@ -35,7 +35,7 @@ class Station(models.Model):
     on_time = models.CharField(max_length=255)
     off_time = models.CharField(max_length=255)
     status = models.CharField(max_length=255)
-    
+    connector_type = models.CharField(max_length=1000,null=True)    
 #Currency eklemek
 class Station_Price(models.Model):
     station = models.OneToOneField(Station, on_delete=models.CASCADE)
@@ -49,6 +49,8 @@ class Station_location(models.Model):
     country = models.CharField(max_length=255)
     latitude = models.CharField(max_length=255)
     longitude = models.CharField(max_length=255)
+    name = models.CharField(max_length=255, null=True, blank=True)
+    social_facilities = models.CharField(max_length=255, null=True, blank=True)
 
 class Connection(models.Model):
     name = models.CharField(max_length=255)
@@ -162,3 +164,10 @@ class Adress(models.Model):
     description = models.CharField(max_length=255)
     latitude = models.CharField(max_length=255)
     longitude = models.CharField(max_length=255)
+
+
+class Criteria(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    Charge_speed = models.IntegerField()
+    Social_facilities = models.IntegerField()
+    Price = models.IntegerField()

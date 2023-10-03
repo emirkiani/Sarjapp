@@ -47,24 +47,46 @@ class StationPriceSerializer(serializers.ModelSerializer):
         model = Station_Price
         fields = ['AC','DC']
 
-#Station Serizalizer düzenlenecek
+#Station Serizalizer dÃ¼zenlenecek
 #Subquery ve left join kontrol edilicek
-#indexlemek konusuna bakılıcak (index sayıları optimum tutulup(fazla olması insert yavaşlar). precise noktalara atılmalı)
+#indexlemek konusuna bakÄ±lÄ±cak (index sayÄ±larÄ± optimum tutulup(fazla olmasÄ± insert yavaÅŸlar). precise noktalara atÄ±lmalÄ±)
 class StationLocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Station_location
-        fields = ['id','full_adress','city','country','latitude','longitude']
+        fields = ['full_adress','city','country','latitude','longitude']
 
 class StationCoordinatesSerializer(serializers.ModelSerializer):
     class Meta:
         model = Station_location
-        fields = ['latitude','longitude']
+        fields = ['latitude','longitude','station_id','name']
+
+class StationDenemeSerializer(serializers.ModelSerializer):
+    power = serializers.SerializerMethodField()
+    connector_type = serializers.SerializerMethodField()
+    min_price = serializers.SerializerMethodField()
+    max_price = serializers.SerializerMethodField()
+
+
+    class Meta:
+        model = Station_location
+        fields = ['latitude', 'longitude', 'station_id', 'name', 'power', 'connector_type', 'min_price', 'max_price']
+    def get_connector_type(self, obj):
+        return obj.station.connector_type
+    def get_min_price(self, obj):
+        return obj.station.station_price.AC
+    def get_power(self, obj):
+        connection = obj.station.connection.first()
+        if connection:
+            return connection.power
+        return None
+    def get_max_price(self, obj):
+        return obj.station.station_price.DC
 
 class StationSerializer(serializers.ModelSerializer):
     station_location = StationCoordinatesSerializer()
     class Meta:
         model = Station
-        fields = ['id','station_location','station_code']
+        fields = ['id','name','station_location']
 
 class StationDetailSerializer(serializers.ModelSerializer):
     prices = StationPriceSerializer(source ='station_price')
@@ -73,7 +95,43 @@ class StationDetailSerializer(serializers.ModelSerializer):
     connection = ConnectionSerializer(many=True)
     class Meta:
         model = Station
-        fields = ['id','name','description', 'capacity', 'on_time', 'off_time','status','prices','connection','location','firm']
+        fields = ['id','name','description', 'capacity', 'on_time', 'off_time','status','prices','connection','location','firm','longitude','latitude']
+        
+
+class RecommendationSerializer(serializers.ModelSerializer):
+    ac = serializers.IntegerField(source='station.station_price.AC')
+    dc = serializers.IntegerField(source='station.station_price.DC')
+    longitude = serializers.CharField()
+    latitude = serializers.CharField()
+    social_facilities = serializers.CharField()
+    name = serializers.CharField(source='station.name')
+    connection_name = serializers.SerializerMethodField()
+    power = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    def get_connection_name(self, obj):
+        connection = obj.station.connection.first()
+        if connection:
+            return connection.name
+        return None
+
+    def get_power(self, obj):
+        connection = obj.station.connection.first()
+        if connection:
+            return connection.power
+        return None
+
+    def get_status(self, obj):
+        connection = obj.station.connection.first()
+        if connection:
+            return connection.status
+        return None
+
+    class Meta:
+        model = Station_location
+        fields = ['id','ac', 'dc', 'longitude', 'latitude', 'name', 'connection_name', 'power', 'status','social_facilities']
+
+
 
 
 class CarlistSerializer(serializers.ModelSerializer):
@@ -99,6 +157,7 @@ class UserCarputSerialize(serializers.ModelSerializer):
         fields = ['id', 'name', 'license_plate','battery_health']
 
 
+
 class AdressSerializer(serializers.ModelSerializer):
     class Meta:
         model = Adress
@@ -108,19 +167,19 @@ class AdressputSerializer(serializers.ModelSerializer):
     class Meta:
         model = Adress
         fields = ['id','name','full_adress','description']
-#düzenlenecek favoriteserializer
+#dÃ¼zenlenecek favoriteserializer
 class FavoriteSerializer(serializers.ModelSerializer):
     station = StationSerializer()
     class Meta:
         model = Favorites
         fields = ['station']
-#station FavoritepostSerializer düzenlenecek
+#station FavoritepostSerializer dÃ¼zenlenecek
 class FavoritepostSerializer(serializers.ModelSerializer):
     class Meta:
         model = Favorites
         fields = ['user','station']
 
-#station ReservationSerializer düzenlenecek
+#station ReservationSerializer dÃ¼zenlenecek
 class ReservationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Reservation
@@ -198,3 +257,29 @@ class FavoriteStationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Station_location
         fields = '__all__'
+
+class FirmsearchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Firm
+        fields = '__all__'
+
+class StationLocationsearchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Station_location
+        fields = '__all__'
+
+class StationsearchSerializer(serializers.ModelSerializer):
+    firm = FirmsearchSerializer()
+    station_location = StationLocationsearchSerializer()
+
+    class Meta:
+        model = Station
+        fields = '__all__'
+
+
+
+
+class CriteriaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Criteria
+        fields = ['id', 'user', 'Charge_speed', 'Social_facilities', 'Price']
