@@ -137,7 +137,6 @@ class StationSearchView(APIView):
         if search_query:
             stations = Station.objects.filter(name__icontains=search_query, firm__name__icontains=search_query)
         elif latitude and longitude:
-            # Use Google Maps API to get nearby stations based on latitude and longitude
             google_api_key = 'AIzaSyAMBbQy9wILxwW_jOn-LharzXsxMtVi1Bw'
             google_api_url = f'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location={latitude},{longitude}&radius=5000&type=station&key={google_api_key}'
             response = requests.get(google_api_url)
