@@ -115,7 +115,39 @@ class LogoutView(APIView):
 
 #Stations verisi latitude longitude request iÃ§inde alarak dÃ¶necek
 #station infolarÄ± parÃ§a parÃ§a get alÄ±cak ÅŸekilde dÃ¼zenlenecek
-#Station Search 
+#Station Search
+
+class StationSearchView(APIView):
+
+    def get(self, request):
+        token = request.headers.get('jwt')
+
+        if not token:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        try:
+            payload = jwt.decode(token, 'secret', algorithms=['HS256'])
+        except jwt.ExpiredSignatureError:
+            raise AuthenticationFailed('Unauthenticated!')
+
+        search_query = request.GET.get('query', None)
+        latitude = request.GET.get('latitude', None)
+        longitude = request.GET.get('longitude', None)
+
+        if search_query:
+            stations = Station.objects.filter(name__icontains=search_query, firm__name__icontains=search_query)
+        elif latitude and longitude:
+            # Use Google Maps API to get nearby stations based on latitude and longitude
+            google_api_key = 'AIzaSyAMBbQy9wILxwW_jOn-LharzXsxMtVi1Bw'
+            google_api_url = f'https://maps.googleapis.com/maps/api/place/nearbysearch/json?location={latitude},{longitude}&radius=5000&type=station&key={google_api_key}'
+            response = requests.get(google_api_url)
+            data = response.json()
+            station_names = [result['name'] for result in data['results']]
+            stations = Station.objects.filter(name__in=station_names)
+
+        serializer = StationsearchSerializer(stations, many=True)
+        return Response(serializer.data)
+
 #Station filtre APIsi yazÄ±lÄ±cak
 #Station AC/DC,KW Power, Rating,7/24,taÅŸÄ±t service,bireysel istisyon(sonra)
 

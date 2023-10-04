@@ -28,4 +28,5 @@ urlpatterns = [
     path('profile',UserProfile.as_view()),
     path('user_criteria', CriteriaView.as_view()),
     path('user_criteria/<int:id>', CriteriaView.as_view()),
+    path('station_search', StationSearchView.as_view()),
 ]

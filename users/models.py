@@ -41,6 +41,7 @@ class Station_Price(models.Model):
     station = models.OneToOneField(Station, on_delete=models.CASCADE)
     AC = models.IntegerField()
     DC = models.IntegerField()
+    Currency = models.CharField()
 
 class Station_location(models.Model):
     station = models.OneToOneField(Station, on_delete=models.CASCADE)

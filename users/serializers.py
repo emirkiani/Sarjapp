@@ -277,8 +277,6 @@ class StationsearchSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-
-
 class CriteriaSerializer(serializers.ModelSerializer):
     class Meta:
         model = Criteria
